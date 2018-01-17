@@ -15,9 +15,6 @@ class Table < ActiveRecord::Base
           destination_name: :text,
           primary_key: :text,
           updated_key: :text,
-          #TODO: insert_only and copy_mode are deprecated! Delete altogether later...
-          #insert_only: :check_box,
-          #copy_mode: :text,
           table_copy_type: :text,
           disabled: :check_box,
           run_as_separate_job: :check_box,

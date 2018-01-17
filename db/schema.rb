@@ -11,7 +11,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 12) do
+ActiveRecord::Schema.define(version: 13) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
@@ -79,7 +79,6 @@ ActiveRecord::Schema.define(version: 12) do
     t.text     "destination_name"
     t.text     "primary_key"
     t.text     "updated_key"
-    t.boolean  "insert_only"
     t.datetime "created_at"
     t.datetime "updated_at"
     t.datetime "last_copied_at"
@@ -88,7 +87,6 @@ ActiveRecord::Schema.define(version: 12) do
     t.datetime "reset_updated_key"
     t.integer  "time_travel_scan_back_period"
     t.boolean  "delete_on_reset"
-    t.text     "copy_mode"
     t.boolean  "disabled"
     t.boolean  "run_as_separate_job"
     t.text     "table_copy_type"
