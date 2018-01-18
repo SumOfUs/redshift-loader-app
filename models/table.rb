@@ -166,7 +166,7 @@ class Table < ActiveRecord::Base
           logger.info " - Copying chunk #{i+1} of #{source_name} data to S3 (#{filename})"
           csv_string = CSV.generate do |csv|
             slice.each do |row|
-              truncate_row_values!(row, dest_col_limits)
+              prepare_row_values!(row, dest_col_limits)
               csv << (row.is_a?(Hash) ? row.values : row)
             end
           end
@@ -204,7 +204,7 @@ class Table < ActiveRecord::Base
           logger.info " - Copying chunk of #{source_name} data to S3"
           csv_string = CSV.generate do |csv|
             slice.each do |row|
-              truncate_row_values!(row, dest_col_limits)
+              prepare_row_values!(row, dest_col_limits)
               csv << (row.is_a?(Hash) ? row.values : row)
             end
           end
@@ -230,7 +230,7 @@ class Table < ActiveRecord::Base
           logger.info " - Copying chunk of #{source_name} data direct to #{table_name}"
           columns = destination_connection.columns(destination_name).map{|col| "#{col.name}" }.join(',')
           value_string = slice.map do |row|
-            truncate_row_values!(row, dest_col_limits)
+            prepare_row_values!(row, dest_col_limits)
             # Different database adapters output different formats
             if row.is_a? Hash
               values = row.values.map{|val| ActiveRecord::Base.connection.quote(val)}
@@ -313,12 +313,21 @@ class Table < ActiveRecord::Base
       return limits_hash
     end
     
-    def truncate_row_values!(row, dest_col_limits)
-      return unless ENV['AUTO_TRUNCATE_COLUMNS']
-      
+    ## Redshift will throw an error aborting the whole copy if there is invalid data
+    ## Clean this up, first by stripping all non-ASCII characters (which Redshift
+    ## doesn't seem to like), then truncate the data to ensure that it does not exceed
+    ## the length of the field
+    def prepare_row_values!(row, dest_col_limits)
+      encoding_options = {
+        :invalid           => :replace,  # Replace invalid byte sequences
+        :undef             => :replace,  # Replace anything not defined in ASCII
+        :replace           => '',        # Use a blank for those replacements
+        :universal_newline => true       # Always break lines with \n
+      }
+
       row.each do |col, value|
         if dest_col_limits[col] && value.is_a?(String) && value.length > dest_col_limits[col]
-          row[col] = value.truncate(dest_col_limits[col], omission: '')
+          row[col] = value.encode(Encoding.find('ASCII'), encoding_options).truncate(dest_col_limits[col], omission: '')
           logger.warn "Truncated column #{col} of row #{primary_key}=#{row[primary_key]} because it was too long (#{value.length} vs max of #{dest_col_limits[col]} in destination DB)"
         end
       end
