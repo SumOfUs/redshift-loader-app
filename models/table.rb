@@ -326,10 +326,14 @@ class Table < ActiveRecord::Base
       }
 
       row.each do |col, value|
-        if dest_col_limits[col] && value.is_a?(String) && value.length > dest_col_limits[col]
-          row[col] = value.encode(Encoding.find('ASCII'), encoding_options).truncate(dest_col_limits[col], omission: '')
-          logger.warn "Truncated column #{col} of row #{primary_key}=#{row[primary_key]} because it was too long (#{value.length} vs max of #{dest_col_limits[col]} in destination DB)"
+        if value.is_a?(String)
+          value = value.encode(Encoding.find('ASCII'), encoding_options)
+          if dest_col_limits[col] && value.length > dest_col_limits[col]
+            value = value.truncate(dest_col_limits[col], omission: '')
+            logger.warn "Truncated column #{col} of row #{primary_key}=#{row[primary_key]} because it was too long (#{value.length} vs max of #{dest_col_limits[col]} in destination DB)"
+          end
         end
+        row[col] = value
       end
     end
     
