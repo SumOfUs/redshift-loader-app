@@ -11,7 +11,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 15) do
+ActiveRecord::Schema.define(version: 16) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
@@ -55,7 +55,7 @@ ActiveRecord::Schema.define(version: 15) do
     t.datetime "updated_at"
     t.datetime "last_copied_at"
     t.datetime "max_updated_key"
-    t.integer  "max_primary_key"
+    t.integer  "max_primary_key",              limit: 8
     t.datetime "reset_updated_key"
     t.integer  "time_travel_scan_back_period"
     t.boolean  "delete_on_reset"
