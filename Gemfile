@@ -22,6 +22,7 @@ gem 'activate-tools', git: 'https://github.com/wordsandwriting/activate-tools'
 gem 'bcrypt'
 gem 'activerecord', '>= 3.1', :require => 'active_record'
 gem 'pg'
+gem 'mysql2', '0.3.20'
 gem 'activerecord4-redshift-adapter'
 
 # Test requirements

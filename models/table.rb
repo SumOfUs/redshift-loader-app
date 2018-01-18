@@ -17,7 +17,6 @@ class Table < ActiveRecord::Base
           updated_key: :text,
           table_copy_type: :text,
           disabled: :check_box,
-          run_as_separate_job: :check_box,
           time_travel_scan_back_period: :number,
           max_updated_key: {type: :text, edit: false},
           max_primary_key: {type: :text, edit: false}
@@ -25,11 +24,11 @@ class Table < ActiveRecord::Base
     end
 
     def source_connection
-        job.source_connection
+        job.source_connection(self.id)
     end
 
     def destination_connection
-        job.destination_connection
+        job.destination_connection(self.id)
     end
 
     #rough-n-ready check if the tables have the same columns
@@ -94,62 +93,55 @@ class Table < ActiveRecord::Base
     def check_for_time_travelling_data
       raise NotImplementedError.new("#{self.class.name}#check_for_time_travelling_data is an abstract method.")
     end
-
-    def copy
-      if self.respond_to?(:run_as_separate_job) && run_as_separate_job
-        lock_name = "#{self.destination_name}"  # Ensure only 1 instance queued / running at a time for the destination table name!
-        logger.info "Running copy of table #{source_name} as a separate job (using lock #{lock_name} for Sidekiq Unique Jobs)"
-        TableWorker.perform_async(self.id, lock_name)
-      else
-        copied_row_count = nil
-        # Run the copy_now method until there's no longer any more rows to copy
-        # (ie. we're not hitting up against the impot limit)
-        while !copied_row_count || copied_row_count >= import_row_limit do
-          copied_row_count = copy_now
-        end
-      end
-    end
     
     def copy_now
-        started_at = Time.now
-        return 0 unless (self.check && self.enabled?)
-        logger.info "About to copy data for table #{source_name} - table_copy_type is #{table_copy_type}, using class #{self.class.name}"
-        
-        pre_copy_steps
-        
-        self.check_for_time_travelling_data
-        self.apply_resets
-        
-        # Ensure max keys are not nil
-        update_attribute(:max_updated_key, MIN_UPDATED_KEY) unless max_updated_key
-        update_attribute(:max_primary_key, MIN_PRIMARY_KEY) unless max_primary_key
+      logger.info "Starting copy for #{source_name} -> #{destination_name}"
+      job.setup_connection(self.id)
+      started_at = Time.now
+      logger.info "Starting check for #{source_name} -> #{destination_name}"
+      return 0 unless (self.check && self.enabled?)
+      logger.info "About to copy data for table #{source_name} - table_copy_type is #{table_copy_type}, using class #{self.class.name}"
+      
+      pre_copy_steps
+      
+      self.check_for_time_travelling_data
+      self.apply_resets
+      
+      # Ensure max keys are not nil
+      update_attribute(:max_updated_key, MIN_UPDATED_KEY) unless max_updated_key
+      update_attribute(:max_primary_key, MIN_PRIMARY_KEY) unless max_primary_key
 
-        logger.info "Getting new rows for table #{source_name}"
-        result = self.new_rows
-        logger.info "Retrieved #{result.count} rows from #{source_name}"
+      logger.info "Getting new rows for table #{source_name}"
+      result = self.new_rows
+      logger.info "Retrieved #{result.count} rows from #{source_name}"
+      
+      if result.count > 0
+        logger.info "Loading #{source_name} data to Redshift"
         
-        if result.count > 0
-          logger.info "Loading #{source_name} data to Redshift"
-          
-          temp_table_name = "stage_#{job_id}_#{source_name}"
-          destination_connection.execute("CREATE TEMP TABLE #{temp_table_name} (LIKE #{destination_name});")
-          
-          copy_results_to_table(temp_table_name, result)
-          merge_results(temp_table_name, merge_to_table_name)
-          update_max_values(temp_table_name)
+        temp_table_name = "stage_#{job_id}_#{source_name}"
 
-          destination_connection.execute("DROP TABLE #{temp_table_name};")
-        end
+        # It's possible that tables get left behind by aborted jobs, so to be safe, drop first
+        destination_connection.execute("
+          DROP TABLE IF EXISTS #{temp_table_name}; 
+          CREATE TABLE #{temp_table_name} (LIKE #{destination_name});
+          ")
+        
+        copy_results_to_table(temp_table_name, result)
+        merge_results(temp_table_name, merge_to_table_name)
+        update_max_values(temp_table_name)
 
-        #Log for benchmarking
-        finished_at = Time.now
-        logger.info "Total time taken to copy #{result.count} rows from #{source_name} to #{merge_to_table_name} was #{finished_at - started_at} seconds"
-        self.table_copies << TableCopy.create(text: "Copied #{source_name} to #{merge_to_table_name}", rows_copied: result.count, started_at: started_at, finished_at: finished_at)
-        
-        post_copy_steps(result)
-        
-        # Return the result count to the caller
-        return result.count
+        destination_connection.execute("DROP TABLE #{temp_table_name};")
+      end
+
+      #Log for benchmarking
+      finished_at = Time.now
+      logger.info "Total time taken to copy #{result.count} rows from #{source_name} to #{merge_to_table_name} was #{finished_at - started_at} seconds"
+      self.table_copies << TableCopy.create(text: "Copied #{source_name} to #{merge_to_table_name}", rows_copied: result.count, started_at: started_at, finished_at: finished_at)
+      
+      post_copy_steps(result)
+      
+      # Return the result count to the caller
+      return result.count
     end
     
     def copy_results_to_table(table_name, results)
@@ -167,13 +159,15 @@ class Table < ActiveRecord::Base
         # Don't bother with chunk size < 1000
         chunk_size = [ (results.count.to_f / ENV['PARALLEL_PROCESSING_NODE_SLICES'].to_i).ceil, 1000].max
         
+        text_file_s3_objects = []
+
         results.each_slice(chunk_size).with_index do |slice, i|
           filename = "#{file_prefix}.txt.#{i+1}"
           logger.info " - Copying chunk #{i+1} of #{source_name} data to S3 (#{filename})"
           csv_string = CSV.generate do |csv|
             slice.each do |row|
               truncate_row_values!(row, dest_col_limits)
-              csv << row.values
+              csv << (row.is_a?(Hash) ? row.values : row)
             end
           end
           
@@ -181,6 +175,7 @@ class Table < ActiveRecord::Base
           text_file = bucket.objects.build(filename)
           text_file.content = csv_string
           text_file.save
+          text_file_s3_objects.push(text_file)
         end
         
         # Create the manifest, listing all the data files
@@ -196,11 +191,10 @@ class Table < ActiveRecord::Base
         destination_connection.execute("COPY #{table_name} from 's3://#{bucket_name}/#{manifest_filename}' 
             credentials 'aws_access_key_id=#{ENV['AWS_ACCESS_KEY_ID']};aws_secret_access_key=#{ENV['AWS_SECRET_ACCESS_KEY']}' delimiter ',' CSV QUOTE AS '\"'  manifest;")
         
+        logger.info "Deleting chunks of #{source_name} data from S3"
         manifest_file.destroy
-        
-        filenames.each do |f|
-          logger.info " - Deleting chunk of #{source_name} data from S3 (#{f})"
-          bucket.objects.find(f).destroy
+        text_file_s3_objects.each do |f|
+          f.destroy
         end
         
       elsif ENV['COPY_VIA_S3']
@@ -211,7 +205,7 @@ class Table < ActiveRecord::Base
           csv_string = CSV.generate do |csv|
             slice.each do |row|
               truncate_row_values!(row, dest_col_limits)
-              csv << row.values
+              csv << (row.is_a?(Hash) ? row.values : row)
             end
           end
 
@@ -235,12 +229,19 @@ class Table < ActiveRecord::Base
         results.each_slice(import_chunk_size) do |slice|
           logger.info " - Copying chunk of #{source_name} data direct to #{table_name}"
           columns = destination_connection.columns(destination_name).map{|col| "#{col.name}" }.join(',')
-          slice.each do |row|
+          value_string = slice.map do |row|
             truncate_row_values!(row, dest_col_limits)
-            destination_connection.execute("INSERT INTO #{table_name} (#{columns}) VALUES ('#{row.values.join("','")}');")
-          end
+            # Different database adapters output different formats
+            if row.is_a? Hash
+              values = row.values.map{|val| ActiveRecord::Base.connection.quote(val)}
+            else
+              values = row.map{|val| ActiveRecord::Base.connection.quote(val)}
+            end
+            "(#{values.join(",")})"
+          end.join(',')
+
+          destination_connection.execute("INSERT INTO #{table_name} (#{columns}) VALUES #{value_string}")
         end
-        
       end
     end
     

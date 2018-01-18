@@ -17,7 +17,7 @@ module DbConnection
     klass = get_connection_klass(job_id)
     return klass.connection
   end
-  
+
   # Dynamically get or build a Class for this Jobs DB Connection
   # (establishing ActiveRecord connections seemingly requires a entirely new class per connection!)
   def get_connection_klass(job_id)

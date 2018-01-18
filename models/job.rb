@@ -7,23 +7,16 @@ class Job < ActiveRecord::Base
           name: :text,
           tables: :collection,
           source_connection_string: :text,
-          destination_connection_string: :text
+          destination_connection_string: :text,
+          active: :check_box
         }
     end
 
     def run
-        started_at = Time.now
-        logger.info "Running job #{name}"
-        
         setup_connection
         tables.each do |table|
-            puts "Job #{name} - Copying #{table.source_name} to #{table.destination_name}"
-            logger.info "Job #{name} - Copying #{table.source_name} to #{table.destination_name}"
-            table.copy
+            TableWorker.perform_async(table.id)
         end
-        
-        finished_at = Time.now
-        logger.info "Total time taken to run job #{name} was #{finished_at - started_at} seconds"
     end
 
     def reset(confirmation)
@@ -46,7 +39,13 @@ class Job < ActiveRecord::Base
     def column_types
       {
         "json" => "varchar(65535)",
-        "text" => "varchar(65535)"
+        "text" => "varchar(65535)",
+        "tinyint(1)" => "int",
+        "int(11)" => "bigint",
+        "smallint(6)" => "int",
+        "longtext" => "varchar(65535)",
+        "double" => "float",
+        "bigint(20)" => "bigint"
       }
     end
 
@@ -58,17 +57,17 @@ class Job < ActiveRecord::Base
       end
     end
 
-    def setup_connection
-        SourceDb.setup_connection(self.id, source_connection_string)
-        DestinationDb.setup_connection(self.id, destination_connection_string)
+    def setup_connection(table_id = 0)
+      SourceDb.setup_connection("#{self.id}t#{table_id}", source_connection_string)
+      DestinationDb.setup_connection("#{self.id}t#{table_id}", destination_connection_string)
     end
 
-    def source_connection
-      SourceDb.get_connection(self.id)
+    def source_connection(table_id = 0)
+      SourceDb.get_connection("#{self.id}t#{table_id}")
     end
 
-    def destination_connection
-      DestinationDb.get_connection(self.id)
+    def destination_connection(table_id = 0)
+      DestinationDb.get_connection("#{self.id}t#{table_id}")
     end
 
     # Discovers all tables in source
@@ -84,35 +83,38 @@ class Job < ActiveRecord::Base
         exclude_table_names.include?(table) || table.starts_with?('tmp_') 
       }
 
-      source_tables.each do |table|
-        puts "Creating #{table}"
-        destination_connection.create_table table, id: false do |t|
-          source_connection.columns(table).each do |column|
-            #create table
-            t.column column.name, convert_column_type(column.sql_type)
-          end
-        end
-
-        #create entry in tables table
-        pk = source_connection.columns(table).select{|c| c.primary}
-        primary_key = if pk.count == 1
-          pk.first.name
-        else
-          ""
-        end
-        uk = source_connection.columns(table).select{|c| c.name == "updated_at"}
-        updated_key = if uk.count == 1
-          uk.first.name
-        else
-          ""
-        end
-
-        self.tables << Table.new({source_name: table, destination_name: table, primary_key: primary_key, updated_key: updated_key, insert_only: false})
+      source_tables.each do |table_name|
+        copy_table_schema(table_name)
       end
 
       puts "Done setup!"
       puts "Warning! Table settings have been guessed but you can do extra configuration such as setting the insert_only flag on tables to further increase speed of loading."
+    end
 
+    def copy_table_schema(table_name)
+      puts "Creating #{table_name}"
+      destination_connection.create_table table_name, id: false do |t|
+        source_connection.columns(table_name).each do |column|
+          #create table
+          t.column column.name, convert_column_type(column.sql_type)
+        end
+      end
+
+      #create entry in tables table
+      pk = source_connection.columns(table_name).select{|c| c.primary}
+      primary_key = if pk.count == 1
+        pk.first.name
+      else
+        ""
+      end
+      uk = source_connection.columns(table_name).select{|c| c.name == "updated_at"}
+      updated_key = if uk.count == 1
+        uk.first.name
+      else
+        ""
+      end
+
+      self.tables << Table.new({source_name: table_name, destination_name: table_name, primary_key: primary_key, updated_key: updated_key, table_copy_type: 'UpdateAndInsertTable'})
     end
 
 end

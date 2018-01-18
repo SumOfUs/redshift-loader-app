@@ -7,4 +7,6 @@ Sidekiq.configure_server do |config|
   end
 end
 
+Sidekiq::Logging.logger = ActiveSupport::Logger.new(STDOUT)
+Sidekiq.logger.formatter = Sidekiq::Logging::Pretty.new
 Sidekiq::Logging.logger.level = Logger.const_get( (ENV['LOG_LEVEL'] || 'info').upcase )

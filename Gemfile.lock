@@ -61,6 +61,7 @@ GEM
     moneta (0.7.20)
     mustermann19 (0.4.0)
       enumerable-lazy
+    mysql2 (0.3.20)
     newrelic_rpm (3.13.2.302)
     padrino (0.13.0)
       padrino-admin (= 0.13.0)
@@ -145,6 +146,7 @@ DEPENDENCIES
   bcrypt
   clockwork (~> 2.0)
   foreman
+  mysql2 (= 0.3.20)
   newrelic_rpm
   padrino (= 0.13.0)
   pg
@@ -160,4 +162,4 @@ RUBY VERSION
    ruby 2.2.8p477
 
 BUNDLED WITH
-   1.15.4
+   1.16.0

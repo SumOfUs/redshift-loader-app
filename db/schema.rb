@@ -11,7 +11,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 13) do
+ActiveRecord::Schema.define(version: 15) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
@@ -26,41 +26,13 @@ ActiveRecord::Schema.define(version: 13) do
     t.datetime "updated_at"
   end
 
-  create_table "clockwork_events", force: true do |t|
-    t.text     "name"
-    t.text     "statement"
-    t.integer  "frequency"
-    t.integer  "runs"
-    t.datetime "last_run_at"
-    t.datetime "last_succeeded_at"
-    t.text     "at"
-    t.text     "error_message"
-    t.text     "queue"
-    t.boolean  "running"
-    t.datetime "created_at"
-    t.datetime "updated_at"
-  end
-
-  create_table "delayed_jobs", force: true do |t|
-    t.integer  "priority",   default: 0
-    t.integer  "attempts",   default: 0
-    t.text     "handler"
-    t.text     "last_error"
-    t.datetime "run_at"
-    t.datetime "locked_at"
-    t.datetime "failed_at"
-    t.string   "locked_by"
-    t.string   "queue"
-    t.datetime "created_at"
-    t.datetime "updated_at"
-  end
-
   create_table "jobs", force: true do |t|
     t.text     "name"
     t.text     "source_connection_string"
     t.text     "destination_connection_string"
     t.datetime "created_at"
     t.datetime "updated_at"
+    t.boolean  "active",                        default: false, null: false
   end
 
   create_table "table_copies", force: true do |t|
@@ -88,7 +60,6 @@ ActiveRecord::Schema.define(version: 13) do
     t.integer  "time_travel_scan_back_period"
     t.boolean  "delete_on_reset"
     t.boolean  "disabled"
-    t.boolean  "run_as_separate_job"
     t.text     "table_copy_type"
   end
 
