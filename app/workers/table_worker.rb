@@ -3,7 +3,7 @@ class TableWorker
   
   sidekiq_options retry: false,
                   unique: :until_and_while_executing,
-                  run_lock_expiration: 365 * 24 * 60 # We don't want the lock to expire
+                  run_lock_expiration: 60 * 60 # If job takes more than 10 minutes, we'll abandon it
   
   def perform(table_id)
     p "I'm a starting to run on table #{table_id}"

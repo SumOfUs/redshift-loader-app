@@ -87,7 +87,7 @@ class Table < ActiveRecord::Base
              #{where_statement_for_source}
              #{order_by_statement_for_source}
              LIMIT #{import_row_limit}"
-      source_connection.execute(sql)
+      source_connection.exec_query(sql)
     end
 
     def check_for_time_travelling_data
