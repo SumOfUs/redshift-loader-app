@@ -136,7 +136,10 @@ class Table < ActiveRecord::Base
       #Log for benchmarking
       finished_at = Time.now
       logger.info "Total time taken to copy #{result.count} rows from #{source_name} to #{merge_to_table_name} was #{finished_at - started_at} seconds"
-      self.table_copies << TableCopy.create(text: "Copied #{source_name} to #{merge_to_table_name}", rows_copied: result.count, started_at: started_at, finished_at: finished_at)
+
+      if ENV['LOG_TABLE_COPIES']
+        self.table_copies << TableCopy.create(text: "Copied #{source_name} to #{merge_to_table_name}", rows_copied: result.count, started_at: started_at, finished_at: finished_at)
+      end
       
       post_copy_steps(result)
       
