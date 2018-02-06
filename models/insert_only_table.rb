@@ -32,10 +32,5 @@ class InsertOnlyTable < Table
     logger.info "max_primary_key is now #{x['max_primary_key']} for #{source_name}"
     update_attributes({ max_primary_key: x['max_primary_key'].to_i })
   end
-
-  def merge_results(from_table_name, to_table_name = self.destination_name)
-    logger.debug "Inserting rows into #{to_table_name}"
-    destination_connection.execute("INSERT INTO #{to_table_name} SELECT * FROM #{from_table_name}")
-  end
   
 end
